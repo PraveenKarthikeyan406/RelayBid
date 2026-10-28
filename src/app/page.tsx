@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { getSupabaseConfig } from "@/lib/supabase/config";
 
@@ -10,7 +10,7 @@ type Auction = {
   emoji: string; color: string; image?: string; seller: string; start: number; increment: number;
   closes: number; bids: Bid[]; status: "live" | "pending" | "reserved" | "unsold" | "rejected" | "cancelled" | "failed_pickup" | "sold";
 };
-type RemoteBidRow = { bidder_id: string; amount: number; created_at: string; bidder: { display_name: string } | null };
+type RemoteBidRow = { listing_id: string; bidder_id: string; amount: number; created_at: string; bidder: { display_name: string } | null };
 type RemoteListingRow = {
   id: string; seller_id: string; title: string; category: string; condition: string; description: string;
   emoji: string; image_url: string | null; start_price: number; bid_increment: number; closes_at: string;
@@ -47,6 +47,10 @@ export default function Home() {
   const [priceLimit, setPriceLimit] = useState(0);
   const [sort, setSort] = useState("Ending soon");
   const [tab, setTab] = useState("Discover");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const auctionsRef = useRef(auctions);
+  const notificationsEnabledRef = useRef(notificationsEnabled);
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -60,20 +64,59 @@ export default function Home() {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState("");
 
+  function showActivityNotification(title: string, body: string) {
+    if (!notificationsEnabledRef.current || !document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+    new Notification(title, { body, icon: "/icon.svg" });
+  }
+
+  useEffect(() => { auctionsRef.current = auctions; }, [auctions]);
+  useEffect(() => { notificationsEnabledRef.current = notificationsEnabled; }, [notificationsEnabled]);
+
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    const updateTime = () => {
+      const currentTime = Date.now();
+      setNow(currentTime);
+      if (!supabaseConfigured) {
+        setAuctions(xs => {
+          let changed = false;
+          const next = xs.map(a => {
+            if (a.status !== "live" || a.closes > currentTime) return a;
+            changed = true;
+            return { ...a, status: a.bids.length ? "pending" as const : "unsold" as const };
+          });
+          return changed ? next : xs;
+        });
+      }
+    };
+    const timer = window.setInterval(updateTime, 1000);
+    const initialTick = window.setTimeout(updateTime, 0);
+    let loadTimer: number | undefined;
     if (!supabaseConfigured) {
-      try {
-        const stored = localStorage.getItem("campus-auction-demo");
-        if (stored) setAuctions(JSON.parse(stored));
-        const storedSaved = localStorage.getItem("campus-auction-saved");
-        if (storedSaved) setSaved(JSON.parse(storedSaved));
-      } catch { /* start with sample data if browser storage is unavailable */ }
-      setLoaded(true);
-      setAuthReady(true);
+      loadTimer = window.setTimeout(() => {
+        try {
+          const stored = localStorage.getItem("campus-auction-demo");
+          if (stored) setAuctions(JSON.parse(stored));
+          const storedSaved = localStorage.getItem("campus-auction-saved");
+          if (storedSaved) setSaved(JSON.parse(storedSaved));
+        } catch { /* start with sample data if browser storage is unavailable */ }
+        setLoaded(true);
+        setAuthReady(true);
+      }, 0);
     }
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(initialTick);
+      if (loadTimer !== undefined) window.clearTimeout(loadTimer);
+    };
   }, [supabaseConfigured]);
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+    const timer = window.setTimeout(() => {
+      const stored = localStorage.getItem("relaybid-notifications-enabled");
+      setNotificationsEnabled(stored === null ? Notification.permission === "granted" : stored === "true");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
   useEffect(() => {
     if (!supabaseConfigured) return;
     const supabase = createSupabaseClient();
@@ -153,7 +196,15 @@ export default function Home() {
     void loadSharedData();
     const channel = userId ? supabase.channel(`relaybid-${userId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "listings" }, () => { void loadSharedData(); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "bids" }, () => { void loadSharedData(); })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "bids" }, payload => {
+        const bid = payload.new as { listing_id: string; bidder_id: string; amount: number };
+        const listing = auctionsRef.current.find(item => item.id === bid.listing_id);
+        if (listing && bid.bidder_id !== userId) {
+          if (listing.seller === "You") showActivityNotification("New bid on your listing", `${listing.title} received a bid of ${money(bid.amount)}.`);
+          if (listing.bids[0]?.bidderId === userId) showActivityNotification("You’ve been outbid", `${listing.title} now has a leading bid of ${money(bid.amount)}.`);
+        }
+        void loadSharedData();
+      })
       .subscribe() : null;
     return () => { disposed = true; if (channel) void supabase.removeChannel(channel); };
   }, [supabaseConfigured, userId, authReady]);
@@ -161,22 +212,9 @@ export default function Home() {
   useEffect(() => { if (loaded && !supabaseConfigured) localStorage.setItem("campus-auction-saved", JSON.stringify(saved)); }, [saved, loaded, supabaseConfigured]);
   useEffect(() => { if (!notice) return; const t = window.setTimeout(() => setNotice(""), 2800); return () => window.clearTimeout(t); }, [notice]);
   useEffect(() => {
-    if (!notice || !document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+    if (!notificationsEnabled || !notice || !document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
     new Notification("RelayBid", { body: notice, icon: "/icon.svg" });
-  }, [notice]);
-  useEffect(() => {
-    if (supabaseConfigured) return;
-    setAuctions(xs => {
-      let changed = false;
-      const next = xs.map(a => {
-        if (a.status !== "live" || a.closes > now) return a;
-        changed = true;
-        return { ...a, status: a.bids.length ? "pending" as const : "unsold" as const };
-      });
-      return changed ? next : xs;
-    });
-  }, [now, supabaseConfigured]);
-
+  }, [notice, notificationsEnabled]);
   const displayAuctions = auctions;
   const displaySaved = saved;
   const active = displayAuctions.filter(a => a.status === "live" && a.closes > now);
@@ -187,7 +225,7 @@ export default function Home() {
     return [...list].sort((a, b) => sort === "Ending soon" ? a.closes - b.closes : sort === "Price: low to high" ? (getCurrent(a) || a.start) - (getCurrent(b) || b.start) : b.bids.length - a.bids.length);
   }, [active, category, condition, priceLimit, query, sort, tab, displaySaved]);
   const current = displayAuctions.find(a => a.id === selected) ?? null;
-  const myListings = displayAuctions.filter(a => a.seller === "You");
+  const myListings = displayAuctions.filter(a => a.seller === "You" && a.status !== "cancelled");
 
   function requireSignIn(action: string) {
     if (supabaseConfigured && !userId) {
@@ -214,7 +252,7 @@ export default function Home() {
     if (!current) return;
     const amount = Number(bidAmount);
     const minimum = current.bids.length ? getCurrent(current) + current.increment : current.start;
-    if (current.closes <= Date.now() || current.status !== "live") { setNotice("This auction has closed."); return; }
+    if (current.closes <= now || current.status !== "live") { setNotice("This auction has closed."); return; }
     if (!Number.isInteger(amount) || amount < minimum) { setNotice(`Your bid must be at least ${money(minimum)}.`); return; }
     if (supabaseConfigured) {
       const supabase = createSupabaseClient();
@@ -305,7 +343,9 @@ export default function Home() {
     void changeAuctionStatus(a, successful ? "sold" : "failed_pickup", successful ? "Handover confirmed. Sale complete." : "Failed pickup recorded.");
   }
   function cancelListing(a: Auction) {
-    void changeAuctionStatus(a, "cancelled", "Listing cancellation recorded.");
+    if (a.bids.length) { setNotice("A listing can’t be deleted after it receives a bid."); return; }
+    if (!window.confirm(`Delete “${a.title}” from the marketplace?`)) return;
+    void changeAuctionStatus(a, "cancelled", "Your listing has been deleted.");
   }
   async function toggleSaved(id: string) {
     if (!requireSignIn("save a listing")) return;
@@ -324,12 +364,28 @@ export default function Home() {
     if (error) setNotice(error.message);
     else { setUserId(null); setUserEmail(""); setNotice("You’re signed out."); }
   }
-  function enableNotifications() {
+  function toggleNotifications() {
+    if (notificationsEnabled) {
+      localStorage.setItem("relaybid-notifications-enabled", "false");
+      notificationsEnabledRef.current = false;
+      setNotificationsEnabled(false);
+      setNotice("RelayBid notifications are off.");
+      return;
+    }
     if (!("Notification" in window)) { setNotice("This browser does not support notifications."); return; }
-    if (Notification.permission === "granted") { setNotice("Browser notifications are on."); return; }
-    Notification.requestPermission().then(permission => setNotice(permission === "granted" ? "Browser notifications are on." : "Notifications are still off."));
+    const enable = () => {
+      localStorage.setItem("relaybid-notifications-enabled", "true");
+      notificationsEnabledRef.current = true;
+      setNotificationsEnabled(true);
+      setNotice("Browser bid alerts are on while RelayBid is open. No emails are sent.");
+    };
+    if (Notification.permission === "granted") { enable(); return; }
+    if (Notification.permission === "denied") { setNotice("Notifications are blocked in browser settings. Allow them for this site, then try again."); return; }
+    Notification.requestPermission().then(permission => {
+      if (permission === "granted") enable();
+      else setNotice("Notifications are still off. You can allow them in your browser settings.");
+    });
   }
-
   if (supabaseConfigured && !authReady) return <main className="auth-required"><div><span className="brand-mark">◎</span><h1>Opening RelayBid…</h1><p>Checking your student sign-in.</p></div></main>;
   if (supabaseConfigured && remoteLoading && !loaded) return <main className="auth-required"><div><span className="brand-mark">◎</span><h1>Loading the marketplace…</h1><p>Fetching listings shared by your campus.</p></div></main>;
 
@@ -342,17 +398,17 @@ export default function Home() {
     </aside>
 
     <section className="main-area">
-      <header className="topbar"><div className="breadcrumb">Marketplace <span>/</span> <b>{tab}</b></div><div className="top-actions">{userId ? <button className="sign-in-link" onClick={signOut}>Sign out</button> : <a className="sign-in-link" href="/login">Sign in</a>}<button className="icon-button" title="Enable browser notifications" onClick={enableNotifications}>♧<i/></button><div className="top-avatar">{userEmail ? userEmail[0].toUpperCase() : "G"}</div></div></header>
+      <header className="topbar"><div className="breadcrumb">Marketplace <span>/</span> <b>{tab}</b></div><div className="top-actions">{userId ? <button className="sign-in-link" onClick={signOut}>Sign out</button> : <a className="sign-in-link" href="/login">Sign in</a>}<button className="icon-button" type="button" title={notificationsEnabled ? "Turn notifications off" : "Turn notifications on"} aria-label={notificationsEnabled ? "Turn notifications off" : "Turn notifications on"} aria-pressed={notificationsEnabled} onClick={toggleNotifications}>♧<i className={notificationsEnabled ? "enabled" : "disabled"}/></button><div className="top-avatar">{userEmail ? userEmail[0].toUpperCase() : "G"}</div></div></header>
       <div className="content">
         {remoteError && <div className="data-error" role="alert">We couldn’t load shared listings: {remoteError}</div>}
         <div className="welcome-row"><div><div className="eyebrow"><span className="eyebrow-line"/> {userEmail ? "WELCOME BACK" : supabaseConfigured ? "CAMPUS MARKETPLACE" : "GOOD MORNING, PRIYA"}</div><h1>{tab === "Discover" ? <>Find your next <em>favourite.</em></> : tab}</h1><p className="intro">Seniors pass it on. Juniors bid it forward.</p></div><button className="primary-button" onClick={openCreateListing}><span>＋</span> List an item</button></div>
         {tab === "Discover" && <div className="hero"><div className="hero-copy"><div className="hero-kicker"><span>✳</span> THE CAMPUS PASS-ON</div><h2>Good things<br/>deserve a <i>second life.</i></h2><p>Bid on useful finds from graduating seniors and give them a new home for your next semester.</p><button onClick={() => document.getElementById("listing-grid")?.scrollIntoView({ behavior: "smooth" })}>Explore what’s here <span>↘</span></button></div><div className="hero-art"><span className="sun"/><span className="orbit o1"/><span className="orbit o2"/><div className="hero-object bike">🚲</div><div className="hero-object book">📚</div><div className="hero-object calc">🧮</div><span className="art-spark s1">✳</span><span className="art-spark s2">✦</span><div className="hero-note">passed on<br/>with love <span>↗</span></div></div><div className="hero-index">01 <span>/ 03</span></div></div>}
 
-        <div className="section-heading" id="listing-grid"><div><div className="eyebrow section-eye">{tab === "My bids" ? "YOUR ACTIVITY" : tab === "Saved" ? "KEPT CLOSE" : tab === "My listings" ? "YOUR SELLER DESK" : "FRESH ON CAMPUS"}</div><h2>{tab === "Discover" ? "Out there, right now" : tab === "My bids" ? "Auctions you’re in" : tab === "Saved" ? "Your saved finds" : "Your listings"}<span className="result-count">{tab === "My listings" ? myListings.length : filtered.length}</span></h2></div><div className="view-toggle"><button className="active">▦</button><button>☷</button></div></div>
+        <div className="section-heading" id="listing-grid"><div><div className="eyebrow section-eye">{tab === "My bids" ? "YOUR ACTIVITY" : tab === "Saved" ? "KEPT CLOSE" : tab === "My listings" ? "YOUR SELLER DESK" : "FRESH ON CAMPUS"}</div><h2>{tab === "Discover" ? "Out there, right now" : tab === "My bids" ? "Auctions you’re in" : tab === "Saved" ? "Your saved finds" : "Your listings"}<span className="result-count">{tab === "My listings" ? myListings.length : filtered.length}</span></h2></div>{tab !== "My listings" && <div className="view-toggle" role="group" aria-label="Listing layout"><button type="button" className={viewMode === "grid" ? "active" : ""} aria-label="Grid view" aria-pressed={viewMode === "grid"} onClick={() => setViewMode("grid")}>▦</button><button type="button" className={viewMode === "list" ? "active" : ""} aria-label="List view" aria-pressed={viewMode === "list"} onClick={() => setViewMode("list")}>☷</button></div>}</div>
         <div className="filters"><label className="search-box"><span>⌕</span><input placeholder="Search for something…" value={query} onChange={e => setQuery(e.target.value)}/><kbd>⌘ K</kbd></label><select value={category} onChange={e => setCategory(e.target.value)}><option>All categories</option>{["Cycles", "Electronics", "Books", "Sports", "Furniture", "Other"].map(x => <option key={x}>{x}</option>)}</select><select value={condition} onChange={e => setCondition(e.target.value)}><option>Any condition</option>{["Like new", "Good", "Fair"].map(x => <option key={x}>{x}</option>)}</select><select value={priceLimit} onChange={e => setPriceLimit(Number(e.target.value))}><option value={0}>Any price</option><option value={500}>Under ₹500</option><option value={1000}>Under ₹1,000</option><option value={2000}>Under ₹2,000</option></select><select value={sort} onChange={e => setSort(e.target.value)}><option>Ending soon</option><option>Price: low to high</option><option>Most bids</option></select><button className="filter-button" onClick={() => { setCategory("All categories"); setCondition("Any condition"); setPriceLimit(0); setQuery(""); }}>↗</button></div>
 
-        {tab === "My listings" ? <div className="seller-list">{myListings.length === 0 ? <div className="empty-state"><span>✳</span><h3>Your next good thing starts here.</h3><p>List something you no longer need and let it find its next owner.</p><button className="primary-button" onClick={openCreateListing}>＋ List an item</button></div> : myListings.map(a => <div className="seller-row" key={a.id}><div className={`seller-thumb ${a.color}`} style={a.image ? { backgroundImage: `url(${a.image})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}>{a.image ? "" : a.emoji}</div><div className="seller-info"><b>{a.title}</b><span>{a.category} · {a.condition}</span></div><div className="seller-status"><small>STATUS</small><b className={`status ${a.status}`}>{a.status === "pending" ? "Needs your decision" : a.status === "reserved" ? "Reserved · arrange pickup" : a.status === "sold" ? "Sale complete" : a.status === "failed_pickup" ? "Failed pickup recorded" : a.status === "unsold" ? "Unsold" : a.status === "cancelled" ? "Seller cancelled" : a.status === "rejected" ? "Winning price rejected" : a.closes <= now ? "Auction ended · review" : "Live auction"}</b></div><div className="seller-price"><small>LEADING BID</small><b>{a.bids.length ? money(getCurrent(a)) : "No bids yet"}</b></div><div className="seller-actions">{a.status === "pending" && <><button className="approve" onClick={() => sellerDecision(a, true)}>Approve</button><button className="decline" onClick={() => sellerDecision(a, false)}>Reject</button></>}{a.status === "reserved" && <><button className="approve" onClick={() => handover(a, true)}>Confirm pickup</button><button className="decline" onClick={() => handover(a, false)}>Failed pickup</button></>}{a.status === "live" && <>{a.closes <= now ? <button className="approve" onClick={() => closeAuction(a)}>Close auction</button> : <>{a.bids.length === 0 && <button className="approve" onClick={() => { setEditingId(a.id); setShowCreate(true); }}>Edit</button>}{a.bids.length === 0 && <button className="decline" onClick={() => cancelListing(a)}>Cancel</button>}</>}</>}<button className="detail-link" onClick={() => setSelected(a.id)}>Details ↗</button></div></div>)}</div> : <>
-          <div className="cards-grid">{filtered.map((a, i) => { const lead = getCurrent(a); const leading = a.bids[0]?.bidder === "You"; return <article className="auction-card" key={a.id} style={{ animationDelay: `${i * 55}ms` }}>
+        {tab === "My listings" ? <div className="seller-list">{myListings.length === 0 ? <div className="empty-state"><span>✳</span><h3>Your next good thing starts here.</h3><p>List something you no longer need and let it find its next owner.</p><button className="primary-button" onClick={openCreateListing}>＋ List an item</button></div> : myListings.map(a => <div className="seller-row" key={a.id}><div className={`seller-thumb ${a.color}`} style={a.image ? { backgroundImage: `url(${a.image})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}>{a.image ? "" : a.emoji}</div><div className="seller-info"><b>{a.title}</b><span>{a.category} · {a.condition}</span></div><div className="seller-status"><small>STATUS</small><b className={`status ${a.status}`}>{a.status === "pending" ? "Needs your decision" : a.status === "reserved" ? "Reserved · arrange pickup" : a.status === "sold" ? "Sale complete" : a.status === "failed_pickup" ? "Failed pickup recorded" : a.status === "unsold" ? "Unsold" : a.status === "cancelled" ? "Deleted" : a.status === "rejected" ? "Winning price rejected" : a.closes <= now ? "Auction ended · review" : "Live auction"}</b></div><div className="seller-price"><small>LEADING BID</small><b>{a.bids.length ? money(getCurrent(a)) : "No bids yet"}</b></div><div className="seller-actions">{a.status === "pending" && <><button className="approve" onClick={() => sellerDecision(a, true)}>Approve</button><button className="decline" onClick={() => sellerDecision(a, false)}>Reject</button></>}{a.status === "reserved" && <><button className="approve" onClick={() => handover(a, true)}>Confirm pickup</button><button className="decline" onClick={() => handover(a, false)}>Failed pickup</button></>}{a.status === "live" && <>{a.closes <= now && <button className="approve" onClick={() => closeAuction(a)}>Close auction</button>}{a.bids.length === 0 && a.closes > now && <button className="approve" onClick={() => { setEditingId(a.id); setShowCreate(true); }}>Edit</button>}{a.bids.length === 0 && <button className="decline" onClick={() => cancelListing(a)}>Delete</button>}</>}<button className="detail-link" onClick={() => setSelected(a.id)}>Details ↗</button></div></div>)}</div> : <>
+          <div className={`cards-grid ${viewMode === "list" ? "list-view" : ""}`}>{filtered.map((a, i) => { const lead = getCurrent(a); const leading = a.bids[0]?.bidder === "You"; return <article className="auction-card" key={a.id} style={{ animationDelay: `${i * 55}ms` }}>
             <button className={`save-button ${displaySaved.includes(a.id) ? "saved" : ""}`} title={userId ? "Save listing" : "Sign in to save listing"} onClick={() => void toggleSaved(a.id)}>{displaySaved.includes(a.id) ? "♥" : "♡"}</button><button className={`card-art ${a.color}`} style={a.image ? { backgroundImage: `linear-gradient(#ffffff16,#ffffff16),url(${a.image})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined} onClick={() => setSelected(a.id)}><span className="art-category">{a.category}</span>{!a.image && <span className="item-emoji">{a.emoji}</span>}<span className={`art-tag ${loaded && a.closes - now < hour ? "urgent" : ""}`}><i/> {loaded ? `${timeLeft(a.closes, now)} left` : "Auction timer"}</span></button>
             <div className="card-content"><div className="condition-line"><span>{a.condition.toUpperCase()}</span><span>·</span><span>BY {a.seller.toUpperCase()}</span></div><button className="card-title" onClick={() => setSelected(a.id)}>{a.title}</button><div className="price-row"><div><small>{leading ? "YOU’RE LEADING" : a.bids.length ? "CURRENT BID" : "STARTING AT"}</small><strong>{money(lead || a.start)}</strong></div><div className="bid-count"><b>{a.bids.length}</b><small>{a.bids.length === 1 ? "bid" : "bids"}</small></div></div><button className="card-cta" onClick={() => { setSelected(a.id); setBidAmount(""); }}><span>{leading ? "You’re in the lead" : "View & place a bid"}</span><span>↗</span></button></div>
           </article>; })}</div>
