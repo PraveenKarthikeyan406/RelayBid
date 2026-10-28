@@ -61,6 +61,10 @@ export default function Home() {
   const [authReady, setAuthReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
+  const [profileName, setProfileName] = useState("");
+  const [profileNameDraft, setProfileNameDraft] = useState("");
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState("");
 
@@ -124,6 +128,7 @@ export default function Home() {
       setUserId(session?.user.id ?? null);
       setUserEmail(session?.user.email ?? "");
       if (!session?.user) {
+        setProfileName("");
         setAuctions([]);
         setSaved([]);
         setLoaded(false);
@@ -135,6 +140,7 @@ export default function Home() {
       setUserId(data.user?.id ?? null);
       setUserEmail(data.user?.email ?? "");
       if (!data.user) {
+        setProfileName("");
         setAuctions([]);
         setSaved([]);
         setLoaded(false);
@@ -208,6 +214,16 @@ export default function Home() {
       .subscribe() : null;
     return () => { disposed = true; if (channel) void supabase.removeChannel(channel); };
   }, [supabaseConfigured, userId, authReady]);
+  useEffect(() => {
+    if (!supabaseConfigured || !userId) return;
+    let disposed = false;
+    void createSupabaseClient().from("profiles").select("display_name").eq("id", userId).single().then(({ data, error }) => {
+      if (disposed) return;
+      if (error) { setNotice("Could not load your profile name."); return; }
+      setProfileName(data.display_name);
+    });
+    return () => { disposed = true; };
+  }, [supabaseConfigured, userId]);
   useEffect(() => { if (loaded && !supabaseConfigured) localStorage.setItem("campus-auction-demo", JSON.stringify(auctions)); }, [auctions, loaded, supabaseConfigured]);
   useEffect(() => { if (loaded && !supabaseConfigured) localStorage.setItem("campus-auction-saved", JSON.stringify(saved)); }, [saved, loaded, supabaseConfigured]);
   useEffect(() => { if (!notice) return; const t = window.setTimeout(() => setNotice(""), 2800); return () => window.clearTimeout(t); }, [notice]);
@@ -364,6 +380,24 @@ export default function Home() {
     if (error) setNotice(error.message);
     else { setUserId(null); setUserEmail(""); setNotice("You’re signed out."); }
   }
+  function openProfileEditor() {
+    if (!requireSignIn("edit your profile name")) return;
+    setProfileNameDraft(profileName);
+    setShowProfileEdit(true);
+  }
+  async function saveProfileName(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!userId) { setNotice("Sign in to edit your profile name."); return; }
+    const name = profileNameDraft.trim();
+    if (!name || name.length > 60) { setNotice("Your name must be between 1 and 60 characters."); return; }
+    setSavingProfile(true);
+    const { error } = await createSupabaseClient().from("profiles").update({ display_name: name }).eq("id", userId);
+    setSavingProfile(false);
+    if (error) { setNotice(error.message); return; }
+    setProfileName(name);
+    setShowProfileEdit(false);
+    setNotice("Your profile name has been updated.");
+  }
   function toggleNotifications() {
     if (notificationsEnabled) {
       localStorage.setItem("relaybid-notifications-enabled", "false");
@@ -394,7 +428,7 @@ export default function Home() {
       <a className="brand" href="#"><span className="brand-mark">◎</span><span>Relay<span className="brand-light">Bid</span><small>PASS IT ON</small></span></a>
       <div className="nav-label">YOUR SPACE</div>
       <nav>{["Discover", "My bids", "Saved", "My listings"].map((name, i) => <button key={name} className={`nav-item ${tab === name ? "selected" : ""}`} onClick={() => openTab(name)}><span className="nav-icon">{["⌕", "♧", "♡", "▣"][i]}</span>{name}{name === "My bids" && <span className="nav-count">{userId ? displayAuctions.filter(a => a.bids.some(b => b.bidder === "You")).length : 0}</span>}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="safety-card"><span className="safety-icon">✳</span><b>Good deals. Good people.</b><p>Every exchange stays on campus. Meet somewhere public and check before you trade.</p><a href="#trust">Our community pledge ↗</a></div><div className="profile"><div className="avatar">{userEmail ? userEmail[0].toUpperCase() : "G"}</div><div><b>{userEmail || "Guest preview"}</b><small>{userEmail ? "Student account" : "Browse-only access"}</small></div><button className="more" title={userId ? "Sign out" : "Sign in"} onClick={() => { if (userId) void signOut(); else window.location.href = "/login"; }}>{userId ? "↪" : "↗"}</button></div></div>
+      <div className="sidebar-bottom"><div className="safety-card"><span className="safety-icon">✳</span><b>Good deals. Good people.</b><p>Every exchange stays on campus. Meet somewhere public and check before you trade.</p><a href="#trust">Our community pledge ↗</a></div><div className="profile"><div className="avatar">{profileName ? profileName[0].toUpperCase() : userId ? "S" : "G"}</div><div className="profile-identity"><b title={profileName || undefined}>{userId ? profileName || "Student" : "Guest"}</b><small>{userId ? "Student account" : "Browse-only access"}</small></div>{userId && <button className="profile-edit" type="button" title="Edit profile name" aria-label="Edit profile name" onClick={openProfileEditor}>✎</button>}<button className="more" title={userId ? "Sign out" : "Sign in"} onClick={() => { if (userId) void signOut(); else window.location.href = "/login"; }}>{userId ? "↪" : "↗"}</button></div></div>
     </aside>
 
     <section className="main-area">
@@ -421,6 +455,7 @@ export default function Home() {
     {current && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setSelected(null); }}><section className="detail-modal"><button className="modal-close" onClick={() => setSelected(null)}>×</button><div className={`detail-art ${current.color}`} style={current.image ? { backgroundImage: `url(${current.image})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}>{!current.image && <span>{current.emoji}</span>}<small>{current.category} · {current.condition}</small></div><div className="detail-body"><div className="eyebrow">LISTED BY {current.seller.toUpperCase()}</div><h2>{current.title}</h2><p>{current.description}</p><div className="detail-price"><div><small>{current.bids.length ? "CURRENT LEADING BID" : "STARTING PRICE"}</small><strong>{money(getCurrent(current) || current.start)}</strong></div><div className="detail-time">◷ &nbsp;{timeLeft(current.closes, now)} left</div></div><div className="bid-history-head"><b>Bid history</b><span>{current.bids.length} public {current.bids.length === 1 ? "bid" : "bids"}</span></div><div className="bid-history">{current.bids.length ? current.bids.map((b, i) => <div className="bid-row" key={`${b.at}-${i}`}><div className="mini-avatar">{b.bidder === "You" ? "P" : b.bidder[0]}</div><span>{b.bidder}{i === 0 && <small> · LEADING</small>}</span><b>{money(b.amount)}</b><time>{new Date(b.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></div>) : <div className="no-bids">No bids yet. Make the first one count.</div>}</div><form className="bid-form" onSubmit={placeBid}><label>Your bid <small>Minimum {money(current.bids.length ? getCurrent(current) + current.increment : current.start)}</small></label><div className="bid-input"><span>₹</span><input type="number" min={current.bids.length ? getCurrent(current) + current.increment : current.start} step="1" value={bidAmount} onChange={e => setBidAmount(e.target.value)} placeholder={String(current.bids.length ? getCurrent(current) + current.increment : current.start)} required/><button type="submit">Place bid <span>↗</span></button></div></form><div className="detail-note">Bids are public. Meet on campus to complete the handover.</div></div></section></div>}
 
     {showCreate && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) { setShowCreate(false); setEditingId(null); } }}><form key={editingId ?? "new"} className="create-modal" onSubmit={createListing}><button type="button" className="modal-close" onClick={() => { setShowCreate(false); setEditingId(null); }}>×</button><div className="eyebrow">PASS IT ON</div><h2>{editingId ? "Edit your listing." : "List a good thing."}</h2><p className="create-intro">Give it a new home, right here on campus.</p><label>What are you selling?<input name="title" defaultValue={auctions.find(a => a.id === editingId)?.title} placeholder="e.g. Everyday commuter cycle" required maxLength={90}/></label><div className="form-two"><label>Category<select name="category" defaultValue={auctions.find(a => a.id === editingId)?.category ?? "Cycles"}>{["Cycles", "Electronics", "Books", "Sports", "Furniture", "Other"].map(x => <option key={x}>{x}</option>)}</select></label><label>Condition<select name="condition" defaultValue={auctions.find(a => a.id === editingId)?.condition ?? "Like new"}>{["Like new", "Good", "Fair"].map(x => <option key={x}>{x}</option>)}</select></label></div><label>A few details<textarea name="description" defaultValue={auctions.find(a => a.id === editingId)?.description} placeholder="Condition, what’s included, anything a buyer should know…" rows={3} required maxLength={500}/></label><label>Item photo <small>Optional · JPG, PNG, or WebP · up to 2 MB</small><input name="photo" type="file" accept="image/*"/></label><div className="form-two"><label>Starting price (₹)<input name="start" type="number" min="1" step="1" defaultValue={auctions.find(a => a.id === editingId)?.start} placeholder="500" required/></label><label>Minimum bid step (₹)<input name="increment" type="number" min="1" step="1" defaultValue={auctions.find(a => a.id === editingId)?.increment} placeholder="50" required/></label></div><div className="form-two"><label>Closes in<select name="duration">{[[1,"1 hour"],[6,"6 hours"],[12,"12 hours"],[24,"1 day"],[72,"3 days"],[168,"7 days"]].map(([n,label]) => <option value={n} key={n}>{label}</option>)}</select></label><label>Item icon<select name="emoji" defaultValue={auctions.find(a => a.id === editingId)?.emoji ?? "📦"}>{["📦","🚲","🧮","📚","💡","🏸","🪑","🎧"].map(x => <option key={x}>{x}</option>)}</select></label></div><div className="create-actions"><button type="button" className="secondary-button" onClick={() => { setShowCreate(false); setEditingId(null); }}>Cancel</button><button className="primary-button" type="submit">{editingId ? "Save changes" : "Publish listing"} <span>↗</span></button></div></form></div>}
+    {showProfileEdit && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !savingProfile) setShowProfileEdit(false); }}><form className="create-modal profile-edit-modal" onSubmit={saveProfileName}><button type="button" className="modal-close" onClick={() => setShowProfileEdit(false)}>×</button><div className="eyebrow">YOUR PROFILE</div><h2>Edit your name.</h2><p className="create-intro">This name appears on your profile and listings.</p><label>Display name<input autoFocus value={profileNameDraft} onChange={event => setProfileNameDraft(event.target.value)} maxLength={60} required/></label><div className="create-actions"><button type="button" className="secondary-button" disabled={savingProfile} onClick={() => setShowProfileEdit(false)}>Cancel</button><button className="primary-button" type="submit" disabled={savingProfile}>{savingProfile ? "Saving…" : "Save name"}</button></div></form></div>}
     {notice && <div className="toast"><span>✳</span>{notice}</div>}
   </main>;
 }
