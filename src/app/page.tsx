@@ -80,18 +80,28 @@ export default function Home() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserId(session?.user.id ?? null);
       setUserEmail(session?.user.email ?? "");
+      if (!session?.user) {
+        setAuctions([]);
+        setSaved([]);
+        setLoaded(false);
+      }
       setAuthReady(true);
     });
     void supabase.auth.getUser().then(({ data, error }) => {
       if (error) setNotice("Could not confirm your sign-in. Please sign in again.");
       setUserId(data.user?.id ?? null);
       setUserEmail(data.user?.email ?? "");
+      if (!data.user) {
+        setAuctions([]);
+        setSaved([]);
+        setLoaded(false);
+      }
       setAuthReady(true);
     });
     return () => subscription.unsubscribe();
   }, [supabaseConfigured]);
   useEffect(() => {
-    if (!supabaseConfigured || !userId) return;
+    if (!supabaseConfigured || !authReady) return;
     let disposed = false;
     const supabase = createSupabaseClient();
     const loadSharedData = async () => {
@@ -115,13 +125,13 @@ export default function Home() {
         emoji: row.emoji,
         color: colorFor(row.category),
         image: row.image_url ?? undefined,
-        seller: row.seller_id === userId ? "You" : row.seller?.display_name ?? "Campus student",
+        seller: userId && row.seller_id === userId ? "You" : row.seller?.display_name ?? "Campus student",
         start: row.start_price,
         increment: row.bid_increment,
         closes: Date.parse(row.closes_at),
         status: row.status,
         bids: [...(row.bids ?? [])].sort((a, b) => b.amount - a.amount || Date.parse(b.created_at) - Date.parse(a.created_at)).map(bid => ({
-          bidder: bid.bidder_id === userId ? "You" : bid.bidder?.display_name ?? "Campus student",
+          bidder: userId && bid.bidder_id === userId ? "You" : bid.bidder?.display_name ?? "Campus student",
           bidderId: bid.bidder_id,
           amount: bid.amount,
           at: Date.parse(bid.created_at),
@@ -129,20 +139,24 @@ export default function Home() {
       } satisfies Auction));
       setAuctions(mapped);
       setRemoteError("");
-      const { data: favorites } = await supabase.from("favorites").select("listing_id").eq("user_id", userId);
-      if (disposed) return;
-      setSaved((favorites ?? []).map(favorite => favorite.listing_id));
+      if (userId) {
+        const { data: favorites } = await supabase.from("favorites").select("listing_id").eq("user_id", userId);
+        if (disposed) return;
+        setSaved((favorites ?? []).map(favorite => favorite.listing_id));
+      } else {
+        setSaved([]);
+      }
       setLoaded(true);
       setRemoteLoading(false);
     };
 
     void loadSharedData();
-    const channel = supabase.channel(`relaybid-${userId}`)
+    const channel = userId ? supabase.channel(`relaybid-${userId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "listings" }, () => { void loadSharedData(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "bids" }, () => { void loadSharedData(); })
-      .subscribe();
-    return () => { disposed = true; void supabase.removeChannel(channel); };
-  }, [supabaseConfigured, userId]);
+      .subscribe() : null;
+    return () => { disposed = true; if (channel) void supabase.removeChannel(channel); };
+  }, [supabaseConfigured, userId, authReady]);
   useEffect(() => { if (loaded && !supabaseConfigured) localStorage.setItem("campus-auction-demo", JSON.stringify(auctions)); }, [auctions, loaded, supabaseConfigured]);
   useEffect(() => { if (loaded && !supabaseConfigured) localStorage.setItem("campus-auction-saved", JSON.stringify(saved)); }, [saved, loaded, supabaseConfigured]);
   useEffect(() => { if (!notice) return; const t = window.setTimeout(() => setNotice(""), 2800); return () => window.clearTimeout(t); }, [notice]);
@@ -163,18 +177,40 @@ export default function Home() {
     });
   }, [now, supabaseConfigured]);
 
-  const active = auctions.filter(a => a.status === "live" && a.closes > now);
+  const displayAuctions = auctions;
+  const displaySaved = saved;
+  const active = displayAuctions.filter(a => a.status === "live" && a.closes > now);
   const filtered = useMemo(() => {
     let list = active.filter(a => (category === "All categories" || a.category === category) && (condition === "Any condition" || a.condition === condition) && (!priceLimit || (getCurrent(a) || a.start) <= priceLimit) && `${a.title} ${a.description} ${a.category}`.toLowerCase().includes(query.toLowerCase()));
     if (tab === "My bids") list = list.filter(a => a.bids.some(b => b.bidder === "You"));
-    if (tab === "Saved") list = list.filter(a => saved.includes(a.id));
+    if (tab === "Saved") list = list.filter(a => displaySaved.includes(a.id));
     return [...list].sort((a, b) => sort === "Ending soon" ? a.closes - b.closes : sort === "Price: low to high" ? (getCurrent(a) || a.start) - (getCurrent(b) || b.start) : b.bids.length - a.bids.length);
-  }, [active, category, condition, priceLimit, query, sort, tab, saved]);
-  const current = auctions.find(a => a.id === selected) ?? null;
-  const myListings = auctions.filter(a => a.seller === "You");
+  }, [active, category, condition, priceLimit, query, sort, tab, displaySaved]);
+  const current = displayAuctions.find(a => a.id === selected) ?? null;
+  const myListings = displayAuctions.filter(a => a.seller === "You");
+
+  function requireSignIn(action: string) {
+    if (supabaseConfigured && !userId) {
+      setNotice(`Sign in with your email to ${action}.`);
+      return false;
+    }
+    return true;
+  }
+
+  function openTab(name: string) {
+    if (name !== "Discover" && !requireSignIn(`view ${name.toLowerCase()}`)) return;
+    setTab(name);
+  }
+
+  function openCreateListing() {
+    if (!requireSignIn("list an item")) return;
+    setEditingId(null);
+    setShowCreate(true);
+  }
 
   async function placeBid(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!requireSignIn("place a bid")) return;
     if (!current) return;
     const amount = Number(bidAmount);
     const minimum = current.bids.length ? getCurrent(current) + current.increment : current.start;
@@ -192,7 +228,9 @@ export default function Home() {
     setBidAmount(""); setNotice("Your bid is in. Good luck!");
   }
   async function createListing(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const f = new FormData(event.currentTarget);
+    event.preventDefault();
+    if (!requireSignIn("list an item")) return;
+    const f = new FormData(event.currentTarget);
     const duration = Number(f.get("duration"));
     const file = f.get("photo") as File;
     if (file?.size > 2_000_000) { setNotice("Choose a photo under 2 MB."); return; }
@@ -270,6 +308,7 @@ export default function Home() {
     void changeAuctionStatus(a, "cancelled", "Listing cancellation recorded.");
   }
   async function toggleSaved(id: string) {
+    if (!requireSignIn("save a listing")) return;
     if (supabaseConfigured && userId) {
       const isSaved = saved.includes(id);
       const supabase = createSupabaseClient();
@@ -292,31 +331,29 @@ export default function Home() {
   }
 
   if (supabaseConfigured && !authReady) return <main className="auth-required"><div><span className="brand-mark">◎</span><h1>Opening RelayBid…</h1><p>Checking your student sign-in.</p></div></main>;
-  if (supabaseConfigured && !userId) return <main className="auth-required"><div><span className="brand-mark">◎</span><h1>Sign in to RelayBid</h1><p>The campus marketplace is shared with signed-in students.</p><a className="primary-button" href="/login">Continue to sign in ↗</a></div></main>;
   if (supabaseConfigured && remoteLoading && !loaded) return <main className="auth-required"><div><span className="brand-mark">◎</span><h1>Loading the marketplace…</h1><p>Fetching listings shared by your campus.</p></div></main>;
 
   return <main className="shell">
     <aside className="sidebar">
       <a className="brand" href="#"><span className="brand-mark">◎</span><span>Relay<span className="brand-light">Bid</span><small>PASS IT ON</small></span></a>
-      <div className="campus-pill"><span className="live-dot"/> North Campus <span className="chevron">⌄</span></div>
       <div className="nav-label">YOUR SPACE</div>
-      <nav>{["Discover", "My bids", "Saved", "My listings"].map((name, i) => <button key={name} className={`nav-item ${tab === name ? "selected" : ""}`} onClick={() => setTab(name)}><span className="nav-icon">{["⌕", "♧", "♡", "▣"][i]}</span>{name}{name === "My bids" && <span className="nav-count">{auctions.filter(a => a.bids.some(b => b.bidder === "You")).length}</span>}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="safety-card"><span className="safety-icon">✳</span><b>Good deals. Good people.</b><p>Every exchange stays on campus. Meet somewhere public and check before you trade.</p><a href="#trust">Our community pledge ↗</a></div><div className="profile"><div className="avatar">{userEmail ? userEmail[0].toUpperCase() : "P"}</div><div><b>{userEmail || "Priya Sharma"}</b><small>{userEmail ? "Student account" : "Final year · Engineering"}</small></div><button className="more" title="Sign out" onClick={() => { if (userEmail) void signOut(); }}>{userEmail ? "↪" : "···"}</button></div></div>
+      <nav>{["Discover", "My bids", "Saved", "My listings"].map((name, i) => <button key={name} className={`nav-item ${tab === name ? "selected" : ""}`} onClick={() => openTab(name)}><span className="nav-icon">{["⌕", "♧", "♡", "▣"][i]}</span>{name}{name === "My bids" && <span className="nav-count">{userId ? displayAuctions.filter(a => a.bids.some(b => b.bidder === "You")).length : 0}</span>}</button>)}</nav>
+      <div className="sidebar-bottom"><div className="safety-card"><span className="safety-icon">✳</span><b>Good deals. Good people.</b><p>Every exchange stays on campus. Meet somewhere public and check before you trade.</p><a href="#trust">Our community pledge ↗</a></div><div className="profile"><div className="avatar">{userEmail ? userEmail[0].toUpperCase() : "G"}</div><div><b>{userEmail || "Guest preview"}</b><small>{userEmail ? "Student account" : "Browse-only access"}</small></div><button className="more" title={userId ? "Sign out" : "Sign in"} onClick={() => { if (userId) void signOut(); else window.location.href = "/login"; }}>{userId ? "↪" : "↗"}</button></div></div>
     </aside>
 
     <section className="main-area">
-      <header className="topbar"><div className="breadcrumb">Marketplace <span>/</span> <b>{tab}</b></div><div className="top-actions">{supabaseConfigured ? <button className="sign-in-link" onClick={signOut}>Sign out</button> : <a className="sign-in-link" href="/login">Sign in</a>}<button className="icon-button" title="Enable browser notifications" onClick={enableNotifications}>♧<i/></button><div className="top-avatar">{userEmail ? userEmail[0].toUpperCase() : "P"}</div></div></header>
+      <header className="topbar"><div className="breadcrumb">Marketplace <span>/</span> <b>{tab}</b></div><div className="top-actions">{userId ? <button className="sign-in-link" onClick={signOut}>Sign out</button> : <a className="sign-in-link" href="/login">Sign in</a>}<button className="icon-button" title="Enable browser notifications" onClick={enableNotifications}>♧<i/></button><div className="top-avatar">{userEmail ? userEmail[0].toUpperCase() : "G"}</div></div></header>
       <div className="content">
         {remoteError && <div className="data-error" role="alert">We couldn’t load shared listings: {remoteError}</div>}
-        <div className="welcome-row"><div><div className="eyebrow"><span className="eyebrow-line"/> {userEmail ? "WELCOME BACK" : "GOOD MORNING, PRIYA"}</div><h1>{tab === "Discover" ? <>Find your next <em>favourite.</em></> : tab}</h1><p className="intro">Seniors pass it on. Juniors bid it forward.</p></div><button className="primary-button" onClick={() => setShowCreate(true)}><span>＋</span> List an item</button></div>
+        <div className="welcome-row"><div><div className="eyebrow"><span className="eyebrow-line"/> {userEmail ? "WELCOME BACK" : supabaseConfigured ? "CAMPUS MARKETPLACE" : "GOOD MORNING, PRIYA"}</div><h1>{tab === "Discover" ? <>Find your next <em>favourite.</em></> : tab}</h1><p className="intro">Seniors pass it on. Juniors bid it forward.</p></div><button className="primary-button" onClick={openCreateListing}><span>＋</span> List an item</button></div>
         {tab === "Discover" && <div className="hero"><div className="hero-copy"><div className="hero-kicker"><span>✳</span> THE CAMPUS PASS-ON</div><h2>Good things<br/>deserve a <i>second life.</i></h2><p>Bid on useful finds from graduating seniors and give them a new home for your next semester.</p><button onClick={() => document.getElementById("listing-grid")?.scrollIntoView({ behavior: "smooth" })}>Explore what’s here <span>↘</span></button></div><div className="hero-art"><span className="sun"/><span className="orbit o1"/><span className="orbit o2"/><div className="hero-object bike">🚲</div><div className="hero-object book">📚</div><div className="hero-object calc">🧮</div><span className="art-spark s1">✳</span><span className="art-spark s2">✦</span><div className="hero-note">passed on<br/>with love <span>↗</span></div></div><div className="hero-index">01 <span>/ 03</span></div></div>}
 
         <div className="section-heading" id="listing-grid"><div><div className="eyebrow section-eye">{tab === "My bids" ? "YOUR ACTIVITY" : tab === "Saved" ? "KEPT CLOSE" : tab === "My listings" ? "YOUR SELLER DESK" : "FRESH ON CAMPUS"}</div><h2>{tab === "Discover" ? "Out there, right now" : tab === "My bids" ? "Auctions you’re in" : tab === "Saved" ? "Your saved finds" : "Your listings"}<span className="result-count">{tab === "My listings" ? myListings.length : filtered.length}</span></h2></div><div className="view-toggle"><button className="active">▦</button><button>☷</button></div></div>
         <div className="filters"><label className="search-box"><span>⌕</span><input placeholder="Search for something…" value={query} onChange={e => setQuery(e.target.value)}/><kbd>⌘ K</kbd></label><select value={category} onChange={e => setCategory(e.target.value)}><option>All categories</option>{["Cycles", "Electronics", "Books", "Sports", "Furniture", "Other"].map(x => <option key={x}>{x}</option>)}</select><select value={condition} onChange={e => setCondition(e.target.value)}><option>Any condition</option>{["Like new", "Good", "Fair"].map(x => <option key={x}>{x}</option>)}</select><select value={priceLimit} onChange={e => setPriceLimit(Number(e.target.value))}><option value={0}>Any price</option><option value={500}>Under ₹500</option><option value={1000}>Under ₹1,000</option><option value={2000}>Under ₹2,000</option></select><select value={sort} onChange={e => setSort(e.target.value)}><option>Ending soon</option><option>Price: low to high</option><option>Most bids</option></select><button className="filter-button" onClick={() => { setCategory("All categories"); setCondition("Any condition"); setPriceLimit(0); setQuery(""); }}>↗</button></div>
 
-        {tab === "My listings" ? <div className="seller-list">{myListings.length === 0 ? <div className="empty-state"><span>✳</span><h3>Your next good thing starts here.</h3><p>List something you no longer need and let it find its next owner.</p><button className="primary-button" onClick={() => { setEditingId(null); setShowCreate(true); }}>＋ List an item</button></div> : myListings.map(a => <div className="seller-row" key={a.id}><div className={`seller-thumb ${a.color}`} style={a.image ? { backgroundImage: `url(${a.image})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}>{a.image ? "" : a.emoji}</div><div className="seller-info"><b>{a.title}</b><span>{a.category} · {a.condition}</span></div><div className="seller-status"><small>STATUS</small><b className={`status ${a.status}`}>{a.status === "pending" ? "Needs your decision" : a.status === "reserved" ? "Reserved · arrange pickup" : a.status === "sold" ? "Sale complete" : a.status === "failed_pickup" ? "Failed pickup recorded" : a.status === "unsold" ? "Unsold" : a.status === "cancelled" ? "Seller cancelled" : a.status === "rejected" ? "Winning price rejected" : a.closes <= now ? "Auction ended · review" : "Live auction"}</b></div><div className="seller-price"><small>LEADING BID</small><b>{a.bids.length ? money(getCurrent(a)) : "No bids yet"}</b></div><div className="seller-actions">{a.status === "pending" && <><button className="approve" onClick={() => sellerDecision(a, true)}>Approve</button><button className="decline" onClick={() => sellerDecision(a, false)}>Reject</button></>}{a.status === "reserved" && <><button className="approve" onClick={() => handover(a, true)}>Confirm pickup</button><button className="decline" onClick={() => handover(a, false)}>Failed pickup</button></>}{a.status === "live" && <>{a.closes <= now ? <button className="approve" onClick={() => closeAuction(a)}>Close auction</button> : <>{a.bids.length === 0 && <button className="approve" onClick={() => { setEditingId(a.id); setShowCreate(true); }}>Edit</button>}{a.bids.length === 0 && <button className="decline" onClick={() => cancelListing(a)}>Cancel</button>}</>}</>}<button className="detail-link" onClick={() => setSelected(a.id)}>Details ↗</button></div></div>)}</div> : <>
+        {tab === "My listings" ? <div className="seller-list">{myListings.length === 0 ? <div className="empty-state"><span>✳</span><h3>Your next good thing starts here.</h3><p>List something you no longer need and let it find its next owner.</p><button className="primary-button" onClick={openCreateListing}>＋ List an item</button></div> : myListings.map(a => <div className="seller-row" key={a.id}><div className={`seller-thumb ${a.color}`} style={a.image ? { backgroundImage: `url(${a.image})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}>{a.image ? "" : a.emoji}</div><div className="seller-info"><b>{a.title}</b><span>{a.category} · {a.condition}</span></div><div className="seller-status"><small>STATUS</small><b className={`status ${a.status}`}>{a.status === "pending" ? "Needs your decision" : a.status === "reserved" ? "Reserved · arrange pickup" : a.status === "sold" ? "Sale complete" : a.status === "failed_pickup" ? "Failed pickup recorded" : a.status === "unsold" ? "Unsold" : a.status === "cancelled" ? "Seller cancelled" : a.status === "rejected" ? "Winning price rejected" : a.closes <= now ? "Auction ended · review" : "Live auction"}</b></div><div className="seller-price"><small>LEADING BID</small><b>{a.bids.length ? money(getCurrent(a)) : "No bids yet"}</b></div><div className="seller-actions">{a.status === "pending" && <><button className="approve" onClick={() => sellerDecision(a, true)}>Approve</button><button className="decline" onClick={() => sellerDecision(a, false)}>Reject</button></>}{a.status === "reserved" && <><button className="approve" onClick={() => handover(a, true)}>Confirm pickup</button><button className="decline" onClick={() => handover(a, false)}>Failed pickup</button></>}{a.status === "live" && <>{a.closes <= now ? <button className="approve" onClick={() => closeAuction(a)}>Close auction</button> : <>{a.bids.length === 0 && <button className="approve" onClick={() => { setEditingId(a.id); setShowCreate(true); }}>Edit</button>}{a.bids.length === 0 && <button className="decline" onClick={() => cancelListing(a)}>Cancel</button>}</>}</>}<button className="detail-link" onClick={() => setSelected(a.id)}>Details ↗</button></div></div>)}</div> : <>
           <div className="cards-grid">{filtered.map((a, i) => { const lead = getCurrent(a); const leading = a.bids[0]?.bidder === "You"; return <article className="auction-card" key={a.id} style={{ animationDelay: `${i * 55}ms` }}>
-            <button className={`save-button ${saved.includes(a.id) ? "saved" : ""}`} title="Save listing" onClick={() => void toggleSaved(a.id)}>{saved.includes(a.id) ? "♥" : "♡"}</button><button className={`card-art ${a.color}`} style={a.image ? { backgroundImage: `linear-gradient(#ffffff16,#ffffff16),url(${a.image})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined} onClick={() => setSelected(a.id)}><span className="art-category">{a.category}</span>{!a.image && <span className="item-emoji">{a.emoji}</span>}<span className={`art-tag ${loaded && a.closes - now < hour ? "urgent" : ""}`}><i/> {loaded ? `${timeLeft(a.closes, now)} left` : "Auction timer"}</span></button>
+            <button className={`save-button ${displaySaved.includes(a.id) ? "saved" : ""}`} title={userId ? "Save listing" : "Sign in to save listing"} onClick={() => void toggleSaved(a.id)}>{displaySaved.includes(a.id) ? "♥" : "♡"}</button><button className={`card-art ${a.color}`} style={a.image ? { backgroundImage: `linear-gradient(#ffffff16,#ffffff16),url(${a.image})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined} onClick={() => setSelected(a.id)}><span className="art-category">{a.category}</span>{!a.image && <span className="item-emoji">{a.emoji}</span>}<span className={`art-tag ${loaded && a.closes - now < hour ? "urgent" : ""}`}><i/> {loaded ? `${timeLeft(a.closes, now)} left` : "Auction timer"}</span></button>
             <div className="card-content"><div className="condition-line"><span>{a.condition.toUpperCase()}</span><span>·</span><span>BY {a.seller.toUpperCase()}</span></div><button className="card-title" onClick={() => setSelected(a.id)}>{a.title}</button><div className="price-row"><div><small>{leading ? "YOU’RE LEADING" : a.bids.length ? "CURRENT BID" : "STARTING AT"}</small><strong>{money(lead || a.start)}</strong></div><div className="bid-count"><b>{a.bids.length}</b><small>{a.bids.length === 1 ? "bid" : "bids"}</small></div></div><button className="card-cta" onClick={() => { setSelected(a.id); setBidAmount(""); }}><span>{leading ? "You’re in the lead" : "View & place a bid"}</span><span>↗</span></button></div>
           </article>; })}</div>
           {filtered.length === 0 && <div className="empty-state"><span>⌕</span><h3>Nothing here just yet.</h3><p>Try another search, or be the first to list something.</p><button className="primary-button" onClick={() => setShowCreate(true)}>＋ List an item</button></div>}

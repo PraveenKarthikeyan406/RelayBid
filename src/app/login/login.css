@@ -19,4 +19,8 @@
 .auth-error{color:#a34d47}
 .auth-back{display:inline-block;margin-top:25px;color:#4e765b;text-decoration:none;font-size:13px;font-weight:600}
 .auth-footnote{margin:20px 0 0;padding-top:16px;border-top:1px solid #edf0ec;color:#8b968e;font-size:12px;line-height:1.5}
+.auth-switch-row{margin:20px 0 0;color:#748179;font-size:13px;text-align:center}
+.auth-switch{border:0;background:transparent;color:#245c46;font:inherit;font-weight:700;font-size:13px;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.auth-forgot{display:block;margin:9px 0 2px auto;padding:0;font-size:12px}
+.auth-back-mode{display:block;margin:20px auto 0}
 @media(max-width:520px){.auth-page{padding:16px}.auth-card{padding:30px 24px;border-radius:14px}.auth-brand{margin-bottom:28px}.auth-card h1{font-size:28px}}
