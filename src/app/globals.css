@@ -3,3 +3,169 @@
 @media(max-width:1100px){.sidebar{width:210px}.main-area{margin-left:210px}.content{padding:32px 28px}.topbar{padding:0 28px}.cards-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.hero-art{left:43%}.seller-row{gap:8px}.seller-actions{flex-wrap:wrap;justify-content:flex-end}}
 @media(max-width:720px){.sidebar{position:sticky;top:0;inset:auto;width:100%;height:58px;display:flex;flex-direction:row;align-items:center;padding:0 13px;border-right:0;border-bottom:1px solid var(--line)}.brand{margin:0;font-size:16px}.brand-mark{width:30px;height:30px}.brand small,.campus-pill,.nav-label,.sidebar nav,.sidebar-bottom{display:none}.main-area{margin:0}.topbar{height:44px;padding:0 16px}.content{padding:25px 15px}.welcome-row{align-items:flex-start}.welcome-row h1{font-size:28px}.welcome-row h1 em{font-size:29px}.intro{max-width:210px;font-size:10px}.welcome-row>.primary-button{padding:0 10px;font-size:9px;margin-top:18px}.hero{height:225px}.hero-copy{padding:25px 0 20px 20px}.hero h2{font-size:25px}.hero h2 i{font-size:27px}.hero-copy p{max-width:210px;font-size:9px}.hero-art{left:48%;opacity:.85;transform:scale(.78);transform-origin:left center;width:140%}.hero-index{right:10px}.filters{flex-wrap:wrap}.search-box{flex-basis:100%}.filters select{flex:1;min-width:0;font-size:9px;padding:0 6px}.filter-button{flex-shrink:0}.cards-grid{grid-template-columns:1fr 1fr;gap:9px}.card-art{height:125px}.item-emoji{font-size:56px}.card-content{padding:10px}.card-title{font-size:11px;min-height:28px;margin:6px 0 9px}.price-row strong{font-size:15px}.condition-line{font-size:7px}.art-tag{font-size:8px}.detail-modal{grid-template-columns:1fr;max-width:440px}.detail-art{min-height:170px}.detail-art span{font-size:72px}.detail-body{padding:23px 20px}.create-modal{padding:27px 20px 20px}.seller-row{flex-wrap:wrap}.seller-info{width:calc(100% - 70px)}.seller-status{margin-left:62px}.seller-actions{width:100%;justify-content:flex-start}.footer{font-size:8px}}
 @media(max-width:390px){.cards-grid{grid-template-columns:1fr}.card-art{height:160px}.hero-art{left:44%;opacity:.6}.welcome-row h1{font-size:25px}.welcome-row h1 em{font-size:26px}}
+.sign-in-link{align-self:center;padding:8px 12px;border:1px solid var(--line);border-radius:7px;color:#4f7559;text-decoration:none;font-size:13px;font-weight:600}
+.sign-in-link{background:#fff;font-family:inherit;cursor:pointer}
+.sign-in-link:hover{background:#f3f7f0;border-color:#d9e5d7}
+.auth-required{min-height:100vh;display:grid;place-items:center;padding:24px;background:#f5f7f3;text-align:center}
+.auth-required>div{max-width:420px;padding:36px;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 20px 55px #263d2b12}
+.auth-required .brand-mark{margin:0 auto 12px}
+.auth-required h1{margin:0 0 9px;font:700 28px Manrope,sans-serif;letter-spacing:-.8px}
+.auth-required p{margin:0 0 20px;color:var(--muted);font-size:14px;line-height:1.5}
+.auth-required .primary-button{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+.data-error{margin:0 0 18px;padding:13px 15px;border:1px solid #f0d8d0;border-radius:8px;background:#fff5f1;color:#934d40;font-size:13px;line-height:1.45}
+
+/* Comfortable marketplace sizing across laptop, tablet, and phone screens. */
+body{font-size:16px}
+.sidebar{width:264px;padding:30px 20px 20px}
+.main-area{margin-left:264px}
+.topbar{height:72px;padding:0 clamp(24px,4vw,60px)}
+.content{max-width:1480px;padding:clamp(28px,3.5vw,52px) clamp(24px,4vw,60px) 28px}
+.welcome-row{margin-bottom:30px}
+.welcome-row h1{font-size:40px}
+.welcome-row h1 em{font-size:42px}
+.intro{font-size:15px}
+.primary-button{height:46px;padding:0 18px;font-size:14px}
+.hero{height:300px;margin-bottom:42px}
+.hero-copy{padding:38px 0 30px 44px}
+.hero-kicker{font-size:11px}
+.hero h2{font-size:36px}
+.hero h2 i{font-size:38px}
+.hero-copy p{font-size:14px;max-width:370px}
+.hero-copy button{font-size:13px}
+.section-heading{margin-bottom:20px}
+.section-heading h2{font-size:24px}
+.section-eye{font-size:10px}
+.filters{gap:10px;margin-bottom:22px}
+.search-box,.filters select{height:44px}
+.search-box input,.filters select{font-size:13px}
+.search-box kbd{font-size:10px}
+.filter-button{width:44px;height:44px}
+.cards-grid{gap:20px}
+.auction-card{border-radius:12px}
+.card-art{height:220px}
+.item-emoji{font-size:88px}
+.art-category,.art-tag{font-size:11px}
+.card-content{padding:17px 17px 15px}
+.condition-line{font-size:10px}
+.card-title{font-size:16px;margin:9px 0 16px}
+.price-row strong{font-size:22px}
+.price-row small,.seller-price small,.seller-status small{font-size:10px}
+.bid-count b{font-size:14px}
+.bid-count small{font-size:11px}
+.card-cta{height:42px;padding:0 12px;font-size:12px}
+.footer{font-size:11px}
+.seller-row{padding:16px;gap:16px}
+.seller-thumb{width:68px;height:64px;font-size:34px}
+.seller-info b{font-size:14px}
+.seller-info span,.seller-price b,.status{font-size:12px}
+.seller-actions button{font-size:11px;padding:9px 11px}
+.detail-modal{width:min(960px,96vw)}
+.detail-art span{font-size:132px}
+.detail-body{padding:42px 38px 32px}
+.detail-body h2,.create-modal h2{font-size:28px}
+.detail-body>p,.create-intro{font-size:14px}
+.detail-price strong{font-size:25px}
+.bid-form>label,.bid-row,.bid-row>b{font-size:13px}
+.bid-input{height:48px}
+.bid-input button{font-size:13px}
+.detail-note{font-size:12px}
+.create-modal{width:min(600px,96vw);padding:34px 38px 30px}
+.create-modal>label,.form-two label{font-size:13px}
+.create-modal input,.create-modal select,.create-modal textarea{font-size:13px;padding:11px 12px}
+.secondary-button{height:44px;font-size:13px}
+.create-actions .primary-button{font-size:13px}
+@media(max-width:1100px){
+  .sidebar{width:224px;padding:26px 16px 18px}
+  .main-area{margin-left:224px}
+  .content{padding:30px 28px 22px}
+  .topbar{padding:0 28px}
+  .hero{height:280px}
+  .hero-copy{padding-left:32px}
+  .hero-art{left:45%}
+  .cards-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .card-art{height:210px}
+}
+@media(max-width:720px){
+  .sidebar{position:sticky;top:0;inset:auto;width:100%;height:auto;min-height:58px;display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;padding:9px 14px 6px;border-right:0;border-bottom:1px solid var(--line)}
+  .brand{margin:0 0 7px;font-size:18px}
+  .brand-mark{width:32px;height:32px}
+  .brand small{display:none}
+  .campus-pill,.nav-label,.sidebar-bottom{display:none}
+  .sidebar nav{display:flex;order:2;gap:4px;width:100%;overflow-x:auto;scrollbar-width:none}
+  .sidebar nav::-webkit-scrollbar{display:none}
+  .nav-item{flex:1 0 auto;width:auto;min-width:0;height:42px;justify-content:center;gap:7px;padding:0 9px;font-size:13px;white-space:nowrap}
+  .main-area{margin:0}
+  .topbar{height:54px;padding:0 18px}
+  .content{padding:26px 20px 20px}
+  .welcome-row{align-items:flex-start;margin-bottom:22px}
+  .welcome-row h1{font-size:32px}
+  .welcome-row h1 em{font-size:34px}
+  .intro{max-width:300px;font-size:13px;line-height:1.45}
+  .welcome-row>.primary-button{height:44px;padding:0 12px;font-size:12px;margin-top:18px;white-space:nowrap}
+  .hero{height:250px;margin-bottom:32px}
+  .hero-copy{padding:27px 0 22px 24px}
+  .hero-kicker{font-size:10px}
+  .hero h2{font-size:30px}
+  .hero h2 i{font-size:32px}
+  .hero-copy p{max-width:260px;font-size:12px;line-height:1.45}
+  .hero-copy button{font-size:12px}
+  .hero-art{left:48%;opacity:.7;transform:scale(.72);transform-origin:left center;width:140%}
+  .hero-index{right:12px;bottom:12px}
+  .section-heading h2{font-size:21px}
+  .filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .search-box{grid-column:1/-1;min-width:0}
+  .filters select{width:100%;min-width:0;font-size:12px;padding:0 9px}
+  .filter-button{width:44px;justify-self:end;grid-column:2}
+  .cards-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .card-art{height:clamp(145px,34vw,210px)}
+  .item-emoji{font-size:clamp(56px,13vw,78px)}
+  .card-content{padding:12px}
+  .condition-line{font-size:9px;gap:4px}
+  .card-title{font-size:14px;line-height:1.3;min-height:36px;margin:8px 0 12px}
+  .price-row strong{font-size:18px}
+  .price-row small{font-size:9px}
+  .bid-count b{font-size:12px}
+  .bid-count small{font-size:10px}
+  .card-cta{height:40px;font-size:11px}
+  .detail-modal{grid-template-columns:1fr;max-width:520px;max-height:92dvh}
+  .detail-art{min-height:190px}
+  .detail-art span{font-size:92px}
+  .detail-body{padding:26px 22px}
+  .detail-body h2,.create-modal h2{font-size:24px}
+  .detail-body>p,.create-intro{font-size:13px}
+  .create-modal{padding:30px 22px 22px;max-height:92dvh}
+  .create-modal>label,.form-two label{font-size:12px}
+  .create-modal input,.create-modal select,.create-modal textarea{font-size:13px}
+  .seller-row{gap:11px}
+  .seller-info{width:calc(100% - 80px)}
+  .seller-status{margin-left:78px}
+  .seller-actions{width:100%;justify-content:flex-start}
+  .footer{font-size:10px;gap:12px}
+}
+@media(max-width:480px){
+  .content{padding:22px 15px 18px}
+  .topbar{padding:0 15px}
+  .breadcrumb{font-size:12px}
+  .welcome-row h1{font-size:29px}
+  .welcome-row h1 em{font-size:31px}
+  .intro{max-width:205px;font-size:12px}
+  .welcome-row>.primary-button{font-size:11px;padding:0 10px}
+  .hero{height:238px}
+  .hero-copy{padding-left:18px}
+  .hero h2{font-size:27px}
+  .hero h2 i{font-size:29px}
+  .hero-copy p{max-width:220px;font-size:11px}
+  .hero-art{left:47%;opacity:.55;transform:scale(.58)}
+  .section-heading h2{font-size:19px}
+  .section-eye{font-size:9px}
+  .cards-grid{grid-template-columns:1fr;gap:14px}
+  .card-art{height:220px}
+  .item-emoji{font-size:86px}
+  .card-content{padding:15px}
+  .card-title{font-size:16px;min-height:0;margin:8px 0 14px}
+  .price-row strong{font-size:21px}
+  .card-cta{height:44px;font-size:12px}
+  .form-two{gap:8px}
+  .form-two label{min-width:0}
+  .footer{flex-direction:column;gap:6px;padding-top:22px}
+}

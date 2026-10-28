@@ -13,17 +13,35 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Supabase connection
+
+RelayBid is connected locally to the Supabase project. The project URL and publishable key are stored in the ignored `.env.local` file. To configure another checkout, copy `.env.example` to `.env.local` and add the project URL and publishable key. Never put a secret or service-role key in a `NEXT_PUBLIC_` variable.
+
+The base schema and its two follow-up migrations have been applied to the project. The local migration files are:
+
+- `supabase/migrations/20261028054938_relaybid_core.sql`
+- `supabase/migrations/20261028055046_relaybid_invoker_bid_rpc.sql`
+- `supabase/migrations/20261028055510_relaybid_listing_status_rules.sql`
+
+To apply future local migrations, sign in and link the CLI to this project:
+
+   ```bash
+   npx supabase login
+   npx supabase link --project-ref <project-ref>
+   npx supabase db push --linked
+   ```
+
+Passwordless email sign-in is available at `/login`. Configure `http://localhost:3000/auth/callback` in the Supabase Auth redirect allow list. The campus email domain has not been supplied or enforced yet; add that restriction before opening sign-ups to students.
+
 ## Included in this first pass
 
-- Browse sample auctions, search by keyword, filter by category, condition and price, and sort by closing time or bid activity.
+- Browse shared auctions when Supabase is configured, or sample auctions in demo mode; search, filter and sort listings.
 - Open an auction to see its description, countdown, current bid, and public bid history.
-- Place bids with the starting-price and minimum-increment checks; valid bids in the final 30 seconds extend the auction by 60 seconds.
-- Create, edit (before the first bid), and cancel listings, including an optional item photo.
-- Close auctions in the browser, mark no-bid auctions unsold, approve or reject a leading bid, and record confirmed or failed pickup.
-- Save items and enable browser notifications.
+- Place bids with database-side starting-price, minimum-increment, auction-close and seller checks.
+- Create and edit listings, upload listing photos, and save favorites.
+- Close auctions, approve or reject leading bids, and record pickup outcomes.
+- Receive shared listing and bid changes through Supabase Realtime; enable browser notifications.
 
 ## Current prototype boundary
 
-This pass is a single-browser prototype. Sample data and changes live in that browser’s `localStorage`; the sign-in, student identity, seller, and other bidders are illustrative. It is useful for reviewing the main screens and interaction flow, but it is not a multi-user auction service. Client-side bid checks are not authoritative and must not be used for a real auction.
-
-The next implementation step is to connect Supabase Auth, PostgreSQL, Storage, and Realtime; move bid validation and closing into trusted transactional server/database operations; and replace the sample identities with verified campus accounts. Browser notification permission is supported here, but durable cross-device push delivery needs a server-side subscription and notification worker.
+Without Supabase environment variables, the app stays in browser-local demo mode. With them, users must sign in by email link and listings, bids, favorites, and photos use the shared Supabase project. Campus-domain enforcement still needs to be configured after the domain is confirmed. Browser notifications are device-local; cross-device push delivery needs a server-side subscription and notification worker.
